@@ -55,6 +55,7 @@ button#go:hover{background:var(--fg);color:var(--bg)}
 button#ex{border:none;background:transparent;color:var(--muted);padding:7px 2px;font:13px var(--sans);cursor:pointer;flex:none;text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:2px}
 button#ex:hover{color:var(--fg)}
 .scope{font-size:13px;color:var(--muted);margin:0 0 8px}
+.scope.protect{margin-top:-4px;text-wrap:pretty}
 
 .verdict{font:700 1.15rem var(--sans);margin:28px 0 4px}
 .verdict.hit{color:var(--red)}
@@ -122,6 +123,7 @@ footer a{white-space:nowrap}
   <button id="ex" type="button">Show an example</button>
 </form>
 <p class="scope" id="scope"></p>
+<p class="scope protect" id="protect"></p>
 
 <div id="out" aria-live="polite"><p class="muted">Loading…</p></div>
 
@@ -145,13 +147,13 @@ footer a{white-space:nowrap}
    library), so addrUrl is left unset and they render as plain text. */
 const CHAINS={
   ethereum:{
-    label:"Ethereum", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607, bots:7,
+    label:"Ethereum", protection:"Protection: private submission (private RPCs, order-flow auctions) that skips the public mempool. Only transactions that never reached the public mempool are covered, so a public transaction won\u2019t show here even if it was sandwiched.", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607, bots:7,
     fallback:{idx:"eth_reorg/idx", s:"eth_reorg/s", ns:64},
     txUrl:h=>`https://etherscan.io/tx/${h}`,
     addrUrl:h=>`https://etherscan.io/address/${h}`,
   },
   base:{
-    label:"Base", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
+    label:"Base", protection:"Protection: a private mempool; pending transactions are visible only to the sequencer until they are included.", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
     /* Per-bot exposure, as attributed in the paper (Base section). */
     causes:{
       "0x000000224f8364bb91259b24435881efc3752b3e":"transaction-pool leak: this bot was active during the August 2023 Base incident that exposed pending transactions",
@@ -163,7 +165,7 @@ const CHAINS={
     addrUrl:h=>`https://basescan.org/address/${h}`,
   },
   tron:{
-    label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
+    label:"Tron", protection:"Protection: first-come-first-served ordering; the public mempool is ordered by arrival time, so fees can\u2019t buy an earlier position.", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
     cause:"probably a latency race",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
@@ -179,7 +181,7 @@ const CHAINS={
      back in/out, profit; token units), then the 64-byte signatures (front legs,
      back legs, victims). Written by export_solana_site_v2.py. */
   solana:{
-    label:"Solana", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
+    label:"Solana", protection:"Protection: no public mempool; transactions are forwarded only to the upcoming leaders.", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
     data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
     txUrl:h=>`https://solscan.io/tx/${h}`,
   },
@@ -291,6 +293,7 @@ async function searchSet(idxDir, sDir, ns, q){
 const WINDOW="Jul 2023 – Jun 2026";
 function updateScope(){
   $("scope").innerHTML=`<span class="nw">${n0(chain.count)} sandwiches</span> <span class="nw">by ${n0(chain.bots)} bot${chain.bots===1?"":"s"}</span> · <span class="nw">${WINDOW}</span>`;
+  $("protect").textContent=chain.protection;
   $("q").placeholder=chain.solana?"signature…":chain.bareHex?"hex id…":"0x…";
 }
 
