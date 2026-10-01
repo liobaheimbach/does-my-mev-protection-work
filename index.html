@@ -164,7 +164,7 @@ const CHAINS={
   },
   tron:{
     label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
-    cause:"likely a latency race: Tron orders transactions by arrival, so a bot watching the pending pool can race the victim to the block producer",
+    cause:"probably a latency race",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
   /* Solana is too large for this site (9.4 GB), so it is read from the Hugging
@@ -250,7 +250,7 @@ function render(rec, q, viaReorg){
     : reason(v.L,sole);
   const nv=`${priv.length}${chain===CHAINS.ethereum?" private":""} victim${sole?"":"s"}`;
   const summary=me
-    ? `<p class="summary hit">Sandwiched on ${rec.d} by bot ${adl(rec.bot)} in a ${ty} attack; ${cause(me)}.</p>`
+    ? `<p class="summary hit">Sandwiched on ${rec.d} by bot ${adl(rec.bot)} in a ${ty} attack${chain.cause?`; ${chain.cause}`:""}.</p>`
     : `<p class="summary">${role[0].toUpperCase()+role.slice(1)} of a ${ty} sandwich on ${rec.d} against ${nv}${viaReorg?", exposed through a chain reorg":""}${rec.p==null?"":`; the bot ${rec.p<0?"lost":"made"} ${amt(Math.abs(rec.p),X)} before fees`}.</p>`;
 
   const head=me
@@ -259,10 +259,12 @@ function render(rec, q, viaReorg){
 
   const vics=priv.map(v=>`<div class="vic"><p class="hash mono">${v.h===q?"▶ ":""}${txl(v.h)}</p><p class="reason">${cause(v)}</p></div>`).join("");
 
+  /* Exposure is attributed per victim on Ethereum (OFA labels, reorgs) and per bot on Base only. */
+  const exposure=chain===CHAINS.ethereum||chain===CHAINS.base;
   out.innerHTML=`${head}
   ${seqHTML(rec,q,X,Y)}
-  <p class="label">Exposure</p>
-  ${vics||'<p class="muted small">No private victims.</p>'}`;
+  ${exposure?`<p class="label">Exposure</p>
+  ${vics||'<p class="muted small">No private victims.</p>'}`:""}`;
 }
 
 function parseHash(raw, c){
@@ -404,9 +406,9 @@ function renderSol(hits, q){
     if(vh.length===1) summary=`Sandwiched ${dateSpan(vh)} by bot ${solAcct(vh[0].bot)}, which ${made(vh[0].p,vh[0].mintIn)} before fees.`;
     else{
       const p=sum(vh), one=bots.length===1;
-      const who=one?`Bot ${solAcct(bots[0])}`:`${cap(word(bots.length))} bots`;
-      summary=`Sandwiched ${vh.length===2?"twice":`${word(vh.length)} times`} ${dateSpan(vh)}. ${who} bought just before you and sold right after${one?" each time":""}`+
-        (p==null?".":`, ${p<0?"losing":"making"} ${sumAmt(p,SOL_MINT)}${one?"":" between them"} before fees.`);
+      const who=one?`bot ${solAcct(bots[0])}`:`${word(bots.length)} bots`;
+      summary=`Sandwiched ${vh.length===2?"twice":`${word(vh.length)} times`} ${dateSpan(vh)} by ${who}`+
+        (p==null?".":`, which ${p<0?"lost":"made"} ${sumAmt(Math.abs(p),SOL_MINT)}${one?"":" between them"} before fees.`);
     }
   }else{
     const nv=hits.reduce((t,h)=>t+h.V.length,0), p=sum(hits);
