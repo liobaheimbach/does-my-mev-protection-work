@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Does my MEV protection work?</title>
-<meta name="description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched despite private order flow protection.">
+<meta name="description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched as protected order flow.">
 <meta property="og:title" content="Does my MEV protection work?">
-<meta property="og:description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched despite private order flow protection.">
+<meta property="og:description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched as protected order flow.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://liobaheimba.ch/does-my-mev-protection-work/">
 <meta name="twitter:card" content="summary">
@@ -106,7 +106,7 @@ footer a{white-space:nowrap}
 
 <main>
 <h1>Does my MEV protection work?</h1>
-<p>Paste a tx hash to check whether it was sandwiched as private order flow.</p>
+<p>Paste a tx hash to check whether it was sandwiched as protected order flow.</p>
 
 <form id="f" autocomplete="off" class="search">
   <label for="chain-sel" class="qlabel">chain</label>
@@ -427,7 +427,7 @@ async function lookupSol(raw){
   try{
     const hits=await solSearch(q);
     if(hits===null){ out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a valid Solana transaction signature.</p>`; return; }
-    if(!hits.length){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} Solana private-flow sandwiches in this dataset. A missing signature does not mean your protection worked — it may be outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
+    if(!hits.length){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} Solana protected order flow sandwiches in this dataset. A missing signature does not mean your protection worked — it may be outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
     renderSol(hits,q);
   }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
@@ -470,7 +470,7 @@ async function lookup(raw){
       rec=await searchSet(chain.fallback.idx, chain.fallback.s, chain.fallback.ns, q);
       viaReorg=!!rec;
     }
-    if(!rec){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} ${chain.label} private-flow sandwiches in this dataset. A missing hash does not mean your protection worked — it may have been public, outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
+    if(!rec){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} ${chain.label} ${chain===CHAINS.ethereum?"private-flow":"protected order flow"} sandwiches in this dataset. A missing hash does not mean your protection worked — it may ${chain===CHAINS.ethereum?"have been public, be ":"be "}outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
     render(rec,q,viaReorg);
   }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
