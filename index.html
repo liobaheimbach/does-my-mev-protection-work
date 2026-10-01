@@ -139,10 +139,14 @@ const CHAINS={
      12 bits of the raw signature) holds sorted 16-byte entries: u64 key (first
      8 signature bytes, big-endian), u8 part, u8 role (0 front, 1 back, 2 victim),
      u16 record length, u32 record offset (little-endian). A record in
-     data/part-NNNN.bin is u8 n_front, u8 n_back, u16 n_victims, then the 64-byte
-     signatures in that order. */
+     data_v2/part-NNNN.bin is u8 n_front, u8 n_back, u16 n_victims, u32 front and
+     back slot, u16 day (since 2023-01-01), u8 type, u8 flags (1 profitable,
+     2 evasive), u8 program, a reserved byte, then 32-byte bot, pool, mint in,
+     mint out (+ back-leg wallet if evasive), five f64 amounts (front in/out,
+     back in/out, profit; token units), then the 64-byte signatures (front legs,
+     back legs, victims). Written by export_solana_site_v2.py. */
   solana:{
-    label:"Solana", count:28042725, solana:true,
+    label:"Solana", count:28042725, solana:true, rec:"data_v2", idx:"index_v2",
     data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
     txUrl:h=>`https://solscan.io/tx/${h}`,
   },
@@ -266,41 +270,78 @@ function b58encode(b){
 const solBin={};
 function loadBin(u){ if(!solBin[u]) solBin[u]=fetch(u).then(r=>{if(!r.ok) throw new Error(r.status); return r.arrayBuffer()}).catch(e=>{delete solBin[u]; throw e}); return solBin[u]; }
 
-/* All sandwiches containing the signature: [{role, f, b, V}], role 0/1/2. */
+const SOL_TYPES=["tight","within-slot wide","cross-slot wide"];
+const SOL_PROGRAMS=["Raydium AMM v4","Pump.fun AMM","Pump.fun AMM v2","Raydium CPMM","Raydium LaunchLab","Raydium CLMM","Orca Whirlpool","Meteora DLMM","Obric v2","SolFi"];
+const SOL_TOKENS={So11111111111111111111111111111111111111112:"SOL",EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:"USDC",Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB:"USDT",USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB:"USD1"};
+
+/* One data_v2 record -> {f, b, V, ...fields}. */
+function parseSol(rec){
+  const dv=new DataView(rec.buffer, rec.byteOffset, rec.length);
+  const nf=rec[0], nb=rec[1], nv=dv.getUint16(2,true), flags=rec[15];
+  const key=i=>b58encode(rec.subarray(i,i+32));
+  let i=18;
+  const bot=key(i), pool=key(i+32), mintIn=key(i+64), mintOut=key(i+96); i+=128;
+  let botBack=bot; if(flags&2){ botBack=key(i); i+=32; }
+  const a=[0,1,2,3,4].map(k=>dv.getFloat64(i+8*k,true)); i+=40;
+  const sigs=[]; for(let k=0;k<nf+nb+nv;k++) sigs.push(b58encode(rec.subarray(i+64*k,i+64*(k+1))));
+  if(i+64*(nf+nb+nv)!==rec.length) throw new Error("bad record");
+  return {f:sigs.slice(0,nf), b:sigs.slice(nf,nf+nb), V:sigs.slice(nf+nb),
+    fs:dv.getUint32(4,true), bs:dv.getUint32(8,true),
+    d:new Date(Date.UTC(2023,0,1)+dv.getUint16(12,true)*864e5).toISOString().slice(0,10),
+    t:SOL_TYPES[rec[14]], ok:!!(flags&1), evasive:!!(flags&2), prog:SOL_PROGRAMS[rec[16]],
+    bot, botBack, pool, mintIn, mintOut, fai:a[0], fao:a[1], bai:a[2], bao:a[3], p:a[4]};
+}
+async function solRecord(part, off, len){
+  const r=await fetch(`${chain.data}${chain.rec}/part-${String(part).padStart(4,"0")}.bin`,{headers:{Range:`bytes=${off}-${off+len-1}`}});
+  if(r.status!==206) throw new Error(`range read ${r.status}`);
+  const rec=new Uint8Array(await r.arrayBuffer());
+  if(rec.length!==len) throw new Error("short range read");
+  return parseSol(rec);
+}
+
+/* All sandwiches containing the signature: [{role, ...record}], role 0/1/2. */
 async function solSearch(sig){
   const raw=b58decode(sig);
   if(!raw||b58encode(raw)!==sig) return null;
   const shard=((raw[0]<<4)|(raw[1]>>4)).toString(16).padStart(3,"0");
-  const idx=new Uint8Array(await loadBin(`${chain.data}index/${shard}.bin`));
+  const idx=new Uint8Array(await loadBin(`${chain.data}${chain.idx}/${shard}.bin`));
   const n=idx.length/16, cmp=i=>{ for(let k=0;k<8;k++){ const d=idx[i*16+k]-raw[k]; if(d) return d; } return 0; };
   let lo=0, hi=n;
   while(lo<hi){ const m=(lo+hi)>>1; if(cmp(m)<0) lo=m+1; else hi=m; }
   const hits=[];
   for(let i=lo;i<n&&cmp(i)===0;i++){
-    const e=new DataView(idx.buffer, i*16, 16);
-    const part=e.getUint8(8), role=e.getUint8(9), len=e.getUint16(10,true), off=e.getUint32(12,true);
-    const r=await fetch(`${chain.data}data/part-${String(part).padStart(4,"0")}.bin`,{headers:{Range:`bytes=${off}-${off+len-1}`}});
-    if(r.status!==206) throw new Error(`range read ${r.status}`);
-    const rec=new Uint8Array(await r.arrayBuffer());
-    if(rec.length!==len) throw new Error("short range read");
-    const nf=rec[0], nb=rec[1], nv=rec[2]|(rec[3]<<8);
-    const sigs=[]; for(let k=0;k<nf+nb+nv;k++) sigs.push(b58encode(rec.subarray(4+64*k,4+64*(k+1))));
-    const g={f:sigs.slice(0,nf), b:sigs.slice(nf,nf+nb), V:sigs.slice(nf+nb)};
+    const e=new DataView(idx.buffer, i*16, 16), role=e.getUint8(9);
+    const g=await solRecord(e.getUint8(8), e.getUint32(12,true), e.getUint16(10,true));
     if([g.f,g.b,g.V][role].includes(sig)) hits.push({role,...g});
   }
   return hits;
 }
 
+const solAcct=h=>`<a href="https://solscan.io/account/${h}" target="_blank" rel="noopener">${short(h)}</a>`;
+const solTok=m=>SOL_TOKENS[m]||`<a href="https://solscan.io/token/${m}" target="_blank" rel="noopener">${short(m)}</a>`;
+function solAmt(x,m){
+  const s=x>=1000?x.toLocaleString("en-US",{maximumFractionDigits:2}):x>=1e-4?String(Number(x.toPrecision(5))):x.toExponential(3).replace("e-","e−");
+  return `${s} ${solTok(m)}`;
+}
+
 function renderSol(hits, q){
   const victim=hits.some(h=>h.role===2);
   const roleName=["front leg","back leg","victim"];
-  const row=(role,h)=>`<div class="seq-row"><span class="role">${role}</span><span class="mono">${txl(h)}${h===q?' <span class="you">← you</span>':""}</span></div>`;
+  const row=(role,h,detail="")=>`<div class="seq-row"><span class="role">${role}</span><span class="mono">${txl(h)}${h===q?' <span class="you">← you</span>':""}</span><span class="muted mono">${detail}</span></div>`;
   const blocks=hits.map((h,i)=>{
     const head=hits.length>1?`<p class="label">Sandwich ${i+1} of ${hits.length}</p>`:"";
-    return `${head}${h.f.map(x=>row("Front",x)).join("")}${h.V.map(x=>row("Victim",x)).join("")}${h.b.map(x=>row("Back",x)).join("")}`;
+    const meta=`<p class="meta"><b>${h.d}</b> · bot ${solAcct(h.bot)} · ${h.t} attack on ${h.prog} · pool ${solAcct(h.pool)}</p>`;
+    const front=h.f.map((x,k)=>row("Front",x, k===0?`${solAmt(h.fai,h.mintIn)} → ${solAmt(h.fao,h.mintOut)}${h.f.length>1?` (all ${h.f.length} legs)`:""}`:"split leg")).join("");
+    const back=h.b.map((x,k)=>row("Back",x, k===0?`${solAmt(h.bai,h.mintOut)} → ${solAmt(h.bao,h.mintIn)}${h.b.length>1?` (all ${h.b.length} legs)`:""}`:"split leg")).join("");
+    const gap=h.bs===h.fs?"same slot":`${n0(h.bs-h.fs)} slot${h.bs-h.fs===1?"":"s"} later`;
+    const evasive=h.evasive?`<div class="gap-note">evasive: back leg from linked wallet ${solAcct(h.botBack)}</div>`:"";
+    const profit=`<div class="gap-note">bot ${h.ok?"profit":"result"} ${h.p>=0?"+":""}${solAmt(h.p,h.mintIn)} before fees</div>`;
+    return `${head}${meta}<div class="block-label">Slot ${n0(h.fs)}</div>${front}${h.V.map(x=>row("Victim",x)).join("")}`+
+      `<div class="block-label">Slot ${n0(h.bs)} <span class="muted">(${gap})</span></div>${back}${evasive}${profit}`;
   }).join("");
+  const bots=new Set(hits.map(h=>h.bot)).size;
   const meta=victim
-    ? `${hits.length===1?"one sandwich":`${hits.length} sandwiches`}; open a transaction on Solscan for amounts, tokens and the bot`
+    ? (hits.length===1?"one sandwich":`${hits.length} sandwiches by ${bots} bot${bots===1?"":"s"}`)
     : `${roleName[hits[0].role]} of ${hits.length===1?"a sandwich":`${hits.length} sandwiches`}, against ${hits[0].V.length} victim${hits[0].V.length===1?"":"s"}`;
   out.innerHTML=`<p class="verdict${victim?" hit":""}">${victim?"Sandwiched":"Attacker leg"}</p><p class="meta">${meta}</p>${blocks}`;
 }
@@ -329,14 +370,9 @@ async function example(){
     let h;
     if(chain.solana){
       const shard=Math.floor(Math.random()*4096).toString(16).padStart(3,"0");
-      const idx=new Uint8Array(await loadBin(`${chain.data}index/${shard}.bin`));
+      const idx=new Uint8Array(await loadBin(`${chain.data}${chain.idx}/${shard}.bin`));
       const e=new DataView(idx.buffer, Math.floor(Math.random()*(idx.length/16))*16, 16);
-      const part=e.getUint8(8), len=e.getUint16(10,true), off=e.getUint32(12,true);
-      const r=await fetch(`${chain.data}data/part-${String(part).padStart(4,"0")}.bin`,{headers:{Range:`bytes=${off}-${off+len-1}`}});
-      if(r.status!==206) throw new Error(`range read ${r.status}`);
-      const rec=new Uint8Array(await r.arrayBuffer());
-      const nf=rec[0], nb=rec[1], nv=rec[2]|(rec[3]<<8), k=nf+nb+Math.floor(Math.random()*nv);
-      h=b58encode(rec.subarray(4+64*k,4+64*(k+1)));
+      h=pick((await solRecord(e.getUint8(8), e.getUint32(12,true), e.getUint16(10,true))).V);
     }else{
       const sh=await load(`${chain.s}/${Math.floor(Math.random()*chain.ns)}.json`);
       h=pick(pick(sh).V).h;
