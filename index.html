@@ -45,6 +45,8 @@ input#q{flex:1 1 220px;min-width:0;border:none;border-bottom:1px solid var(--mut
 input#q:focus-visible{outline:none;border-bottom-color:var(--fg)}
 button#go{border:1px solid var(--fg);background:transparent;color:var(--fg);border-radius:3px;padding:7px 14px;font:14px var(--sans);cursor:pointer;flex:none}
 button#go:hover{background:var(--fg);color:var(--bg)}
+button#ex{border:none;background:transparent;color:var(--muted);padding:7px 2px;font:13px var(--sans);cursor:pointer;flex:none;text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:2px}
+button#ex:hover{color:var(--fg)}
 .scope{font-size:13px;color:var(--muted);margin:0 0 8px}
 
 .verdict{font:700 1.15rem var(--sans);margin:28px 0 4px}
@@ -86,6 +88,7 @@ footer p{max-width:58ch}
   <label for="q" class="qlabel">tx hash</label>
   <input id="q" name="q" spellcheck="false" placeholder="0x…">
   <button id="go" type="submit">Look up</button>
+  <button id="ex" type="button">Show an example</button>
 </form>
 <p class="scope" id="scope"></p>
 
@@ -116,11 +119,19 @@ const CHAINS={
   },
   base:{
     label:"Base", idx:"base/idx", s:"base/s", ns:64, count:1889,
+    /* Per-bot exposure, as attributed in the paper (Base section). */
+    causes:{
+      "0x000000224f8364bb91259b24435881efc3752b3e":"transaction-pool leak: this bot was active during the August 2023 Base incident that exposed pending transactions",
+      "0x14d676cbaac800c5b0297cd1226770b5d2d2bb75":"predictable behavior: the victims trade in a fixed, recurring loop, so the next swap can be anticipated",
+      "0xc9cc0e1ecf0ae9af9439933b0c38ee843977b41b":"predictable behavior: recurring, funding-linked victim trades; the bot's close fee matching suggests some transaction visibility as well",
+      "0xfcf103349cb306c0234c4171559150f385745a26":"predictable behavior: recurring, funding-linked victim trades; the bot's close fee matching suggests some transaction visibility as well",
+    },
     txUrl:h=>`https://basescan.org/tx/${h}`,
     addrUrl:h=>`https://basescan.org/address/${h}`,
   },
   tron:{
     label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bareHex:true,
+    cause:"likely a latency race: Tron orders transactions by arrival, so a bot watching the pending pool can race the victim to the block producer",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
   /* Solana is too large for this site (9.4 GB), so it is read from the Hugging
@@ -150,8 +161,8 @@ const adl=(h,full)=>{
 const n0=x=>Number(x).toLocaleString("en-US");
 function load(u){ if(!cache[u]) cache[u]=fetch(u).then(r=>{if(!r.ok) throw new Error(r.status); return r.json()}).catch(e=>{delete cache[u]; throw e}); return cache[u]; }
 const DEC={WETH:18,ETH:18,USDC:6,USDT:6};
-function amt(x,sym){
-  const d=DEC[sym]; x=Number(x);
+function amt(x,tok){
+  const sym=tok[1]??"token", d=tok[2]??DEC[sym]; x=Number(x);
   if(d==null) return `${x.toExponential(3).replace("e+","e")} ${esc(sym)} <span class="muted">(raw)</span>`;
   const v=x/10**d; const s=v>=1000?v.toLocaleString("en-US",{maximumFractionDigits:2}):v.toPrecision(5).replace(/\.?0+$/,"");
   return `${s} ${esc(sym)}`;
@@ -179,7 +190,7 @@ function seqHTML(rec,q,X,Y){
   };
   rows.push(`<div class="block-label">Block ${n0(rec.fb)}</div>`);
   rec.f.forEach((h,i)=>row("Front",h, i===0?`${amt(rec.fai,X)} → ${amt(rec.fao,Y)}`:"split leg"));
-  rec.V.forEach(v=>row("Victim",v.h, `private, from ${adl(v.a)}`));
+  rec.V.forEach(v=>row("Victim",v.h, `${chain===CHAINS.ethereum?"private, ":""}from ${adl(v.a)}`));
   rows.push(`<div class="gap-note">${rec.ta!=null?`${n0(rec.ta)} transactions from front leg to back leg`:`${rec.ba} block${rec.ba===1?"":"s"} between the legs`}</div>`);
   if(rec.bb!==rec.fb) rows.push(`<div class="block-label">Block ${n0(rec.bb)} <span class="muted">(+${n0(rec.bb-rec.fb)})</span></div>`);
   rec.b.forEach((h,i)=>row("Back",h, i===0?`${amt(rec.bai,Y)} → ${amt(rec.bao,X)}`:"split leg"));
@@ -188,7 +199,7 @@ function seqHTML(rec,q,X,Y){
 
 function render(rec, q, viaReorg){
   const inTok=rec.fin==="token0"?rec.t0:rec.t1, outTok=rec.fin==="token0"?rec.t1:rec.t0;
-  const X=inTok[1], Y=outTok[1];
+  const X=inTok, Y=outTok;
   const me=rec.V.find(v=>v.h===q);
   const role=rec.f.includes(q)?"front leg":"back leg";
   const priv=rec.V;
@@ -197,9 +208,14 @@ function render(rec, q, viaReorg){
 
   const head=me
     ? `<p class="verdict hit">Sandwiched</p><p class="meta"><b>${rec.d}</b> · bot ${adl(rec.bot)} · ${ty} attack${via}</p>`
-    : `<p class="verdict">Attacker leg</p><p class="meta">${role}, bot ${adl(rec.bot)}, <b>${rec.d}</b>, against ${priv.length} private victim${priv.length===1?"":"s"}${via}</p>`;
+    : `<p class="verdict">Attacker leg</p><p class="meta">${role}, bot ${adl(rec.bot)}, <b>${rec.d}</b>, against ${priv.length}${chain===CHAINS.ethereum?" private":""} victim${priv.length===1?"":"s"}${via}</p>`;
 
-  const vics=priv.map(v=>`<div class="vic"><p class="hash mono">${v.h===q?"▶ ":""}${txl(v.h)}</p><p class="reason">${reason(v.L,priv.length===1)}</p></div>`).join("");
+  const sole=priv.length===1;
+  const cause=v=>viaReorg ? "exposed by a reorged block: the block carrying it was broadcast, then reorged out"+(sole?"":"; not the sole victim")
+    : chain.causes ? (chain.causes[rec.bot]||"cause not attributed")+(sole?"":"; not the sole victim")
+    : chain.cause ? chain.cause+(sole?"":"; not the sole victim")
+    : reason(v.L,sole);
+  const vics=priv.map(v=>`<div class="vic"><p class="hash mono">${v.h===q?"▶ ":""}${txl(v.h)}</p><p class="reason">${cause(v)}</p></div>`).join("");
 
   out.innerHTML=`${head}
   ${seqHTML(rec,q,X,Y)}
@@ -305,6 +321,30 @@ async function lookupSol(raw){
 
 function setChain(key){ chain=CHAINS[key]; $("chain-sel").value=key; updateScope(); }
 
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+/* A random victim on the selected chain, looked up like a pasted hash. */
+async function example(){
+  out.innerHTML=`<p class="muted small">picking an example…</p>`;
+  try{
+    let h;
+    if(chain.solana){
+      const shard=Math.floor(Math.random()*4096).toString(16).padStart(3,"0");
+      const idx=new Uint8Array(await loadBin(`${chain.data}index/${shard}.bin`));
+      const e=new DataView(idx.buffer, Math.floor(Math.random()*(idx.length/16))*16, 16);
+      const part=e.getUint8(8), len=e.getUint16(10,true), off=e.getUint32(12,true);
+      const r=await fetch(`${chain.data}data/part-${String(part).padStart(4,"0")}.bin`,{headers:{Range:`bytes=${off}-${off+len-1}`}});
+      if(r.status!==206) throw new Error(`range read ${r.status}`);
+      const rec=new Uint8Array(await r.arrayBuffer());
+      const nf=rec[0], nb=rec[1], nv=rec[2]|(rec[3]<<8), k=nf+nb+Math.floor(Math.random()*nv);
+      h=b58encode(rec.subarray(4+64*k,4+64*(k+1)));
+    }else{
+      const sh=await load(`${chain.s}/${Math.floor(Math.random()*chain.ns)}.json`);
+      h=pick(pick(sh).V).h;
+    }
+    $("q").value=h; lookup(h);
+  }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
+}
+
 async function lookup(raw){
   if(!chain.solana&&!/[0-9a-fA-F]{64}/.test(String(raw))&&SOL_SIG.test(String(raw))) setChain("solana");
   if(chain.solana) return lookupSol(raw);
@@ -328,6 +368,7 @@ async function lookup(raw){
 }
 $("chain-sel").addEventListener("change",e=>setChain(e.target.value));
 $("f").addEventListener("submit",e=>{e.preventDefault(); lookup($("q").value)});
+$("ex").addEventListener("click",example);
 $("q").addEventListener("paste",e=>{const t=(e.clipboardData||window.clipboardData)?.getData("text"); if(t&&(/(0x)?[0-9a-fA-F]{64}/.test(t)||SOL_SIG.test(t))){e.preventDefault(); lookup(t)}});
 window.addEventListener("hashchange",()=>{const h=location.hash.slice(1); if(h) lookup(h)});
 updateScope();
