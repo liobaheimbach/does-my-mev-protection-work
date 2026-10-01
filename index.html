@@ -129,7 +129,7 @@ footer a{white-space:nowrap}
 
 <footer>
 <p>Heimbach, Solmaz, Öz, Ferreira Torres. <i>No Place to Hide: An Analysis on Protected Order Flow Sandwich Attacks.</i> <a href="https://arxiv.org/abs/2609.28115" target="_blank" rel="noopener">arXiv:2609.28115</a>, 2026.</p>
-<p>Ethereum, Base and Tron data are served from this site; Solana data from the <a href="https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset" target="_blank" rel="noopener">Hugging Face dataset</a>.</p>
+<p>Ethereum, Base and Tron data are served from this site, and Solana data from the <a href="https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset" target="_blank" rel="noopener">Hugging Face dataset</a>.</p>
 <p>OFA attribution (MEV-Share, MEVBlocker, Blink, Merkle) covers Ethereum only, and a missing label doesn't rule a route out. Lookups run in your browser against the published files.</p>
 </footer>
 </main>
@@ -153,19 +153,19 @@ const CHAINS={
     addrUrl:h=>`https://etherscan.io/address/${h}`,
   },
   base:{
-    label:"Base", protection:"Protection: a private mempool; pending transactions are visible only to the sequencer until they are included.", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
+    label:"Base", protection:"Protection: a private mempool, where pending transactions are visible only to the sequencer until they are included.", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
     /* Per-bot exposure, as attributed in the paper (Base section). */
     causes:{
       "0x000000224f8364bb91259b24435881efc3752b3e":"transaction-pool leak: this bot was active during the August 2023 Base incident that exposed pending transactions",
       "0x14d676cbaac800c5b0297cd1226770b5d2d2bb75":"predictable behavior: the victims trade in a fixed, recurring loop, so the next swap can be anticipated",
-      "0xc9cc0e1ecf0ae9af9439933b0c38ee843977b41b":"predictable behavior: recurring, funding-linked victim trades; the bot's close fee matching suggests some transaction visibility as well",
-      "0xfcf103349cb306c0234c4171559150f385745a26":"predictable behavior: recurring, funding-linked victim trades; the bot's close fee matching suggests some transaction visibility as well",
+      "0xc9cc0e1ecf0ae9af9439933b0c38ee843977b41b":"predictable behavior: recurring, funding-linked victim trades. The bot's close fee matching suggests some transaction visibility as well",
+      "0xfcf103349cb306c0234c4171559150f385745a26":"predictable behavior: recurring, funding-linked victim trades. The bot's close fee matching suggests some transaction visibility as well",
     },
     txUrl:h=>`https://basescan.org/tx/${h}`,
     addrUrl:h=>`https://basescan.org/address/${h}`,
   },
   tron:{
-    label:"Tron", protection:"Protection: first-come-first-served ordering; the public mempool is ordered by arrival time, so fees can\u2019t buy an earlier position.", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
+    label:"Tron", protection:"Protection: first-come-first-served ordering. The public mempool is ordered by arrival time, so fees can\u2019t buy an earlier position.", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
     cause:"probably a latency race",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
@@ -181,7 +181,7 @@ const CHAINS={
      back in/out, profit; token units), then the 64-byte signatures (front legs,
      back legs, victims). Written by export_solana_site_v2.py. */
   solana:{
-    label:"Solana", protection:"Protection: no public mempool; transactions are forwarded only to the upcoming leaders.", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
+    label:"Solana", protection:"Protection: no public mempool. Transactions are forwarded only to the upcoming leaders.", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
     data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
     txUrl:h=>`https://solscan.io/tx/${h}`,
   },
@@ -217,7 +217,7 @@ function reason(L, sole){
   else if(S) t="seen only in MEV-Share — mechanism unconfirmed";
   else if(M) t="seen only in MEVBlocker — mechanism unconfirmed";
   else t="not seen in any OFA dataset";
-  if(!sole) t+="; not the sole victim";
+  if(!sole) t+=" (not the sole victim)";
   return t;
 }
 
@@ -246,14 +246,14 @@ function render(rec, q, viaReorg){
   const via=viaReorg?" · exposed via chain reorg":"";
 
   const sole=priv.length===1;
-  const cause=v=>viaReorg ? "exposed by a reorged block: the block carrying it was broadcast, then reorged out"+(sole?"":"; not the sole victim")
-    : chain.causes ? (chain.causes[rec.bot]||"cause not attributed")+(sole?"":"; not the sole victim")
-    : chain.cause ? chain.cause+(sole?"":"; not the sole victim")
+  const cause=v=>viaReorg ? "exposed by a reorged block: the block carrying it was broadcast, then reorged out"+(sole?"":" (not the sole victim)")
+    : chain.causes ? (chain.causes[rec.bot]||"cause not attributed")+(sole?"":" (not the sole victim)")
+    : chain.cause ? chain.cause+(sole?"":" (not the sole victim)")
     : reason(v.L,sole);
   const nv=`${priv.length}${chain===CHAINS.ethereum?" private":""} victim${sole?"":"s"}`;
   const summary=me
     ? `<p class="summary hit">Sandwiched on ${rec.d} by bot ${adl(rec.bot)} in a ${ty} attack${chain.cause?`, ${chain.cause}`:""}.</p>`
-    : `<p class="summary">${role[0].toUpperCase()+role.slice(1)} of a ${ty} sandwich on ${rec.d} against ${nv}${viaReorg?", exposed through a chain reorg":""}${rec.p==null?"":`; the bot ${rec.p<0?"lost":"made"} ${amt(Math.abs(rec.p),X)} before fees`}.</p>`;
+    : `<p class="summary">${role[0].toUpperCase()+role.slice(1)} of a ${ty} sandwich on ${rec.d} against ${nv}${viaReorg?", exposed through a chain reorg":""}${rec.p==null?"":`. The bot ${rec.p<0?"lost":"made"} ${amt(Math.abs(rec.p),X)} before fees`}.</p>`;
 
   const head=me
     ? `<p class="verdict hit">Sandwiched</p>${summary}<p class="meta"><b>${rec.d}</b> · bot ${adl(rec.bot)} · ${ty} attack${via}</p>`
@@ -416,7 +416,7 @@ function renderSol(hits, q){
   }else{
     const nv=hits.reduce((t,h)=>t+h.V.length,0), p=sum(hits);
     summary=`${cap(roleName[hits[0].role])} of ${hits.length===1?"a sandwich":`${word(hits.length)} sandwiches`} ${dateSpan(hits)} against ${nv} victim${nv===1?"":"s"}${hits.length>1?" in total":""}`+
-      (p==null?".":`; the bot ${made(p,hits[0].mintIn)} before fees.`);
+      (p==null?".":`. The bot ${made(p,hits[0].mintIn)} before fees.`);
   }
   out.innerHTML=`<p class="verdict${victim?" hit":""}">${victim?"Sandwiched":"Attacker leg"}</p><p class="summary${victim?" hit":""}">${summary}</p>${blocks}`;
 }
