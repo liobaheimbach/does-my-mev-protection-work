@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Does my MEV protection work?</title>
+<meta name="description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched despite private order flow protection.">
+<meta property="og:title" content="Does my MEV protection work?">
+<meta property="og:description" content="Paste a transaction hash from Ethereum, Base, Tron or Solana to check whether it was sandwiched despite private order flow protection.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://liobaheimba.ch/does-my-mev-protection-work/">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cstyle%3Erect%7Bfill:%231a1a1a%7D.m%7Bfill:%23b3261e%7D@media(prefers-color-scheme:dark)%7Brect%7Bfill:%23ededed%7D.m%7Bfill:%23ff7a6e%7D%7D%3C/style%3E%3Crect x='1' y='2' width='14' height='4' rx='2'/%3E%3Crect class='m' x='1' y='7' width='14' height='2'/%3E%3Crect x='1' y='10' width='14' height='4' rx='2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -70,7 +77,29 @@ button#ex:hover{color:var(--fg)}
 .vic .hash{font-size:14px}
 .vic .reason{font-size:13.5px;color:var(--muted);margin-top:2px}
 
-footer{margin-top:40px;font-size:13px;color:var(--muted)}
+/* One-sentence answer under the verdict: a thin rule, nothing more. */
+.summary{margin:2px 0 22px;padding:1px 0 1px 12px;border-left:2px solid color-mix(in srgb,var(--muted) 50%,transparent);font-size:15px;text-wrap:pretty}
+.summary.hit{border-left-color:color-mix(in srgb,var(--red) 65%,transparent)}
+.summary a{white-space:nowrap}
+
+/* Further Solana sandwiches fold into one line each, split by hairlines. */
+details.more{border-top:1px solid color-mix(in srgb,var(--fg) 12%,transparent)}
+details.more:last-of-type{border-bottom:1px solid color-mix(in srgb,var(--fg) 12%,transparent)}
+details.more:first-of-type{margin-top:26px}
+details.more>summary{list-style:none;cursor:pointer;padding:9px 0 9px 1.2em;text-indent:-1.2em;font-size:14px;font-variant-numeric:tabular-nums}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"▸";display:inline-block;width:1.2em;text-indent:0;color:var(--muted)}
+details.more[open]>summary::before{content:"▾"}
+details.more>summary:hover{color:var(--fg);background:color-mix(in srgb,var(--fg) 4%,transparent)}
+details.more>summary:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+details.more>summary .sep{color:var(--muted)}
+details.more>summary .nw,.scope .nw{white-space:nowrap}
+details.more>.body{padding:0 0 16px}
+details.more>.body>.label:first-child{margin-top:6px}
+
+footer{margin-top:44px;font-size:13px;color:var(--muted)}
+footer p{margin:.45em 0}
+footer a{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -97,7 +126,9 @@ footer{margin-top:40px;font-size:13px;color:var(--muted)}
 <div id="out" aria-live="polite"><p class="muted">Loading…</p></div>
 
 <footer>
-<p>From Heimbach, Solmaz, Öz, Ferreira Torres. <i>No Place to Hide: An Analysis on Protected Order Flow Sandwich Attacks.</i> <a href="https://arxiv.org/abs/2609.28115" target="_blank" rel="noopener">arXiv:2609.28115</a>, 2026. OFA attribution (MEV-Share, MEVBlocker, Blink, Merkle) is available for Ethereum only; a missing label doesn't rule a route out. Solana results are read from the <a href="https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset" target="_blank" rel="noopener">Hugging Face dataset</a>. Lookups run in your browser against the published files.</p>
+<p>Heimbach, Solmaz, Öz, Ferreira Torres. <i>No Place to Hide: An Analysis on Protected Order Flow Sandwich Attacks.</i> <a href="https://arxiv.org/abs/2609.28115" target="_blank" rel="noopener">arXiv:2609.28115</a>, 2026.</p>
+<p>Ethereum, Base and Tron data are served from this site; Solana data from the <a href="https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset" target="_blank" rel="noopener">Hugging Face dataset</a>.</p>
+<p>OFA attribution (MEV-Share, MEVBlocker, Blink, Merkle) covers Ethereum only, and a missing label doesn't rule a route out. Lookups run in your browser against the published files.</p>
 </footer>
 </main>
 
@@ -114,13 +145,13 @@ footer{margin-top:40px;font-size:13px;color:var(--muted)}
    library), so addrUrl is left unset and they render as plain text. */
 const CHAINS={
   ethereum:{
-    label:"Ethereum", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607,
+    label:"Ethereum", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607, bots:7,
     fallback:{idx:"eth_reorg/idx", s:"eth_reorg/s", ns:64},
     txUrl:h=>`https://etherscan.io/tx/${h}`,
     addrUrl:h=>`https://etherscan.io/address/${h}`,
   },
   base:{
-    label:"Base", idx:"base/idx", s:"base/s", ns:64, count:1889,
+    label:"Base", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
     /* Per-bot exposure, as attributed in the paper (Base section). */
     causes:{
       "0x000000224f8364bb91259b24435881efc3752b3e":"transaction-pool leak: this bot was active during the August 2023 Base incident that exposed pending transactions",
@@ -132,7 +163,7 @@ const CHAINS={
     addrUrl:h=>`https://basescan.org/address/${h}`,
   },
   tron:{
-    label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bareHex:true,
+    label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
     cause:"likely a latency race: Tron orders transactions by arrival, so a bot watching the pending pool can race the victim to the block producer",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
@@ -148,7 +179,7 @@ const CHAINS={
      back in/out, profit; token units), then the 64-byte signatures (front legs,
      back legs, victims). Written by export_solana_site_v2.py. */
   solana:{
-    label:"Solana", count:28042725, solana:true, rec:"data_v2", idx:"index_v2",
+    label:"Solana", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
     data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
     txUrl:h=>`https://solscan.io/tx/${h}`,
   },
@@ -212,15 +243,20 @@ function render(rec, q, viaReorg){
   const ty=TYPE[rec.t]||rec.t;
   const via=viaReorg?" · exposed via chain reorg":"";
 
-  const head=me
-    ? `<p class="verdict hit">Sandwiched</p><p class="meta"><b>${rec.d}</b> · bot ${adl(rec.bot)} · ${ty} attack${via}</p>`
-    : `<p class="verdict">Attacker leg</p><p class="meta">${role}, bot ${adl(rec.bot)}, <b>${rec.d}</b>, against ${priv.length}${chain===CHAINS.ethereum?" private":""} victim${priv.length===1?"":"s"}${via}</p>`;
-
   const sole=priv.length===1;
   const cause=v=>viaReorg ? "exposed by a reorged block: the block carrying it was broadcast, then reorged out"+(sole?"":"; not the sole victim")
     : chain.causes ? (chain.causes[rec.bot]||"cause not attributed")+(sole?"":"; not the sole victim")
     : chain.cause ? chain.cause+(sole?"":"; not the sole victim")
     : reason(v.L,sole);
+  const nv=`${priv.length}${chain===CHAINS.ethereum?" private":""} victim${sole?"":"s"}`;
+  const summary=me
+    ? `<p class="summary hit">Sandwiched on ${rec.d} by bot ${adl(rec.bot)} in a ${ty} attack; ${cause(me)}.</p>`
+    : `<p class="summary">${role[0].toUpperCase()+role.slice(1)} of a ${ty} sandwich on ${rec.d} against ${nv}${viaReorg?", exposed through a chain reorg":""}${rec.p==null?"":`; the bot ${rec.p<0?"lost":"made"} ${amt(Math.abs(rec.p),X)} before fees`}.</p>`;
+
+  const head=me
+    ? `<p class="verdict hit">Sandwiched</p>${summary}<p class="meta"><b>${rec.d}</b> · bot ${adl(rec.bot)} · ${ty} attack${via}</p>`
+    : `<p class="verdict">Attacker leg</p>${summary}<p class="meta">${role}, bot ${adl(rec.bot)}, <b>${rec.d}</b>, against ${nv}${via}</p>`;
+
   const vics=priv.map(v=>`<div class="vic"><p class="hash mono">${v.h===q?"▶ ":""}${txl(v.h)}</p><p class="reason">${cause(v)}</p></div>`).join("");
 
   out.innerHTML=`${head}
@@ -249,8 +285,10 @@ async function searchSet(idxDir, sDir, ns, q){
   return null;
 }
 
+/* The paper's study window; the same for every chain. */
+const WINDOW="Jul 2023 – Jun 2026";
 function updateScope(){
-  $("scope").textContent=`${n0(chain.count)} private-flow sandwiches on ${chain.label}.`;
+  $("scope").innerHTML=`<span class="nw">${n0(chain.count)} sandwiches</span> <span class="nw">by ${n0(chain.bots)} bot${chain.bots===1?"":"s"}</span> · <span class="nw">${WINDOW}</span>`;
   $("q").placeholder=chain.solana?"signature…":chain.bareHex?"hex id…":"0x…";
 }
 
@@ -326,11 +364,23 @@ function solAmt(x,m){
   return `${s} ${solTok(m)}`;
 }
 
+const SOL_MINT="So11111111111111111111111111111111111111112";
+const WORDS=["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve"];
+const word=n=>WORDS[n]??n0(n), cap=t=>t[0].toUpperCase()+t.slice(1);
+/* Summary amounts: SOL to 3 decimals; other tokens as solAmt, unlinked. Sign is the caller's. */
+function sumAmt(x,m){
+  const a=Math.abs(x);
+  if(m!==SOL_MINT) return solAmt(a,m).replace(/<a [^>]*>([^<]*)<\/a>/,"$1");
+  return (a>=5e-4||a===0?a.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:3}):String(Number(a.toPrecision(2))))+" SOL";
+}
+const made=(x,m)=>`${x<0?"lost":"made"} ${sumAmt(x,m)}`;
+const dateSpan=hs=>{ const ds=hs.map(h=>h.d).sort(); return ds[0]===ds[ds.length-1]?`on ${ds[0]}`:`between ${ds[0]} and ${ds[ds.length-1]}`; };
+
 function renderSol(hits, q){
   const victim=hits.some(h=>h.role===2);
   const roleName=["front leg","back leg","victim"];
   const row=(role,h,detail="")=>`<div class="seq-row"><span class="role">${role}</span><span class="mono">${txl(h)}${h===q?' <span class="you">← you</span>':""}</span><span class="muted mono">${detail}</span></div>`;
-  const blocks=hits.map((h,i)=>{
+  const block=(h,i)=>{
     const head=hits.length>1?`<p class="label">Sandwich ${i+1} of ${hits.length}</p>`:"";
     const meta=`<p class="meta"><b>${h.d}</b> · bot ${solAcct(h.bot)} · ${h.t} attack on ${h.prog} · pool ${solAcct(h.pool)}</p>`;
     const front=h.f.map((x,k)=>row("Front",x, k===0?`${solAmt(h.fai,h.mintIn)} → ${solAmt(h.fao,h.mintOut)}${h.f.length>1?` (all ${h.f.length} legs)`:""}`:"split leg")).join("");
@@ -340,12 +390,30 @@ function renderSol(hits, q){
     const profit=`<div class="gap-note">bot ${h.ok?"profit":"result"} ${h.p>=0?"+":""}${solAmt(h.p,h.mintIn)} before fees</div>`;
     return `${head}${meta}<div class="block-label">Slot ${n0(h.fs)}</div>${front}${h.V.map(x=>row("Victim",x)).join("")}`+
       `<div class="block-label">Slot ${n0(h.bs)} <span class="muted">(${gap})</span></div>${back}${evasive}${profit}`;
-  }).join("");
-  const bots=new Set(hits.map(h=>h.bot)).size;
-  const meta=victim
-    ? (hits.length===1?"one sandwich":`${hits.length} sandwiches by ${bots} bot${bots===1?"":"s"}`)
-    : `${roleName[hits[0].role]} of ${hits.length===1?"a sandwich":`${hits.length} sandwiches`}, against ${hits[0].V.length} victim${hits[0].V.length===1?"":"s"}`;
-  out.innerHTML=`<p class="verdict${victim?" hit":""}">${victim?"Sandwiched":"Attacker leg"}</p><p class="meta">${meta}</p>${blocks}`;
+  };
+  /* Sandwich 1 in full; each further one folds into a one-line disclosure holding the same block. */
+  const sep=' <span class="sep">·</span> ';
+  const blocks=hits.map((h,i)=>i===0?block(h,i):
+    `<details class="more"><summary>Sandwich ${i+1}${sep}<span class="nw">bot <span class="mono">${short(h.bot)}</span></span>${sep}<span class="nw">${sumAmt(h.fai,h.mintIn)} → ${sumAmt(h.bao,h.mintIn)}</span>${sep}<span class="nw">${h.p<0?"−":"+"}${sumAmt(h.p,h.mintIn)}</span></summary><div class="body">${block(h,i)}</div></details>`).join("");
+
+  /* Profits are summed only when every sandwich is denominated in SOL. */
+  const sum=hs=>hs.length===1||hs.every(h=>h.mintIn===SOL_MINT)?hs.reduce((t,h)=>t+h.p,0):null;
+  let summary;
+  if(victim){
+    const vh=hits.filter(h=>h.role===2), bots=[...new Set(vh.map(h=>h.bot))];
+    if(vh.length===1) summary=`Sandwiched ${dateSpan(vh)} by bot ${solAcct(vh[0].bot)}, which ${made(vh[0].p,vh[0].mintIn)} before fees.`;
+    else{
+      const p=sum(vh), one=bots.length===1;
+      const who=one?`Bot ${solAcct(bots[0])}`:`${cap(word(bots.length))} bots`;
+      summary=`Sandwiched ${vh.length===2?"twice":`${word(vh.length)} times`} ${dateSpan(vh)}. ${who} bought just before you and sold right after${one?" each time":""}`+
+        (p==null?".":`, ${p<0?"losing":"making"} ${sumAmt(p,SOL_MINT)}${one?"":" between them"} before fees.`);
+    }
+  }else{
+    const nv=hits.reduce((t,h)=>t+h.V.length,0), p=sum(hits);
+    summary=`${cap(roleName[hits[0].role])} of ${hits.length===1?"a sandwich":`${word(hits.length)} sandwiches`} ${dateSpan(hits)} against ${nv} victim${nv===1?"":"s"}${hits.length>1?" in total":""}`+
+      (p==null?".":`; the bot ${made(p,hits[0].mintIn)} before fees.`);
+  }
+  out.innerHTML=`<p class="verdict${victim?" hit":""}">${victim?"Sandwiched":"Attacker leg"}</p><p class="summary${victim?" hit":""}">${summary}</p>${blocks}`;
 }
 
 async function lookupSol(raw){
