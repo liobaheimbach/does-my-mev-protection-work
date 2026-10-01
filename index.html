@@ -81,6 +81,7 @@ footer p{max-width:58ch}
     <option value="ethereum">Ethereum</option>
     <option value="base">Base</option>
     <option value="tron">Tron</option>
+    <option value="solana">Solana</option>
   </select>
   <label for="q" class="qlabel">tx hash</label>
   <input id="q" name="q" spellcheck="false" placeholder="0x…">
@@ -91,7 +92,7 @@ footer p{max-width:58ch}
 <div id="out" aria-live="polite"><p class="muted">Loading…</p></div>
 
 <footer>
-<p>From Heimbach, Solmaz, Öz, Ferreira Torres. <i>No Place to Hide: An Analysis on Protected Order Flow Sandwich Attacks.</i> <a href="https://arxiv.org/abs/2609.28115" target="_blank" rel="noopener">arXiv:2609.28115</a>, 2026. OFA attribution (MEV-Share, MEVBlocker, Blink, Merkle) is available for Ethereum only; a missing label doesn't rule a route out. Lookups run in your browser against the published files.</p>
+<p>From Heimbach, Solmaz, Öz, Ferreira Torres. <i>No Place to Hide: An Analysis on Protected Order Flow Sandwich Attacks.</i> <a href="https://arxiv.org/abs/2609.28115" target="_blank" rel="noopener">arXiv:2609.28115</a>, 2026. OFA attribution (MEV-Share, MEVBlocker, Blink, Merkle) is available for Ethereum only; a missing label doesn't rule a route out. Solana results carry transaction signatures only and are read from the <a href="https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset" target="_blank" rel="noopener">Hugging Face dataset</a>. Lookups run in your browser against the published files.</p>
 </footer>
 </main>
 
@@ -121,6 +122,18 @@ const CHAINS={
   tron:{
     label:"Tron", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bareHex:true,
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
+  },
+  /* Solana is too large for this site (9.4 GB), so it is read from the Hugging
+     Face dataset, which serves CORS and byte ranges. index/XXX.bin (XXX = first
+     12 bits of the raw signature) holds sorted 16-byte entries: u64 key (first
+     8 signature bytes, big-endian), u8 part, u8 role (0 front, 1 back, 2 victim),
+     u16 record length, u32 record offset (little-endian). A record in
+     data/part-NNNN.bin is u8 n_front, u8 n_back, u16 n_victims, then the 64-byte
+     signatures in that order. */
+  solana:{
+    label:"Solana", count:28042725, solana:true,
+    data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
+    txUrl:h=>`https://solscan.io/tx/${h}`,
   },
 };
 const $=id=>document.getElementById(id), out=$("out");
@@ -216,13 +229,87 @@ async function searchSet(idxDir, sDir, ns, q){
 
 function updateScope(){
   $("scope").textContent=`${n0(chain.count)} private-flow sandwiches on ${chain.label}.`;
-  $("q").placeholder=chain.bareHex?"hex id…":"0x…";
+  $("q").placeholder=chain.solana?"signature…":chain.bareHex?"hex id…":"0x…";
 }
 
+const B58="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const SOL_SIG=/[1-9A-HJ-NP-Za-km-z]{86,88}/;
+function b58decode(s){
+  let n=0n;
+  for(const c of s){ const d=B58.indexOf(c); if(d<0) return null; n=n*58n+BigInt(d); }
+  const out=new Uint8Array(64);
+  for(let i=63;i>=0;i--){ out[i]=Number(n&255n); n>>=8n; }
+  return n===0n?out:null;
+}
+function b58encode(b){
+  let n=0n; for(const x of b) n=(n<<8n)|BigInt(x);
+  let s=""; while(n>0n){ s=B58[Number(n%58n)]+s; n/=58n; }
+  for(const x of b){ if(x) break; s="1"+s; }
+  return s;
+}
+const solBin={};
+function loadBin(u){ if(!solBin[u]) solBin[u]=fetch(u).then(r=>{if(!r.ok) throw new Error(r.status); return r.arrayBuffer()}).catch(e=>{delete solBin[u]; throw e}); return solBin[u]; }
+
+/* All sandwiches containing the signature: [{role, f, b, V}], role 0/1/2. */
+async function solSearch(sig){
+  const raw=b58decode(sig);
+  if(!raw||b58encode(raw)!==sig) return null;
+  const shard=((raw[0]<<4)|(raw[1]>>4)).toString(16).padStart(3,"0");
+  const idx=new Uint8Array(await loadBin(`${chain.data}index/${shard}.bin`));
+  const n=idx.length/16, cmp=i=>{ for(let k=0;k<8;k++){ const d=idx[i*16+k]-raw[k]; if(d) return d; } return 0; };
+  let lo=0, hi=n;
+  while(lo<hi){ const m=(lo+hi)>>1; if(cmp(m)<0) lo=m+1; else hi=m; }
+  const hits=[];
+  for(let i=lo;i<n&&cmp(i)===0;i++){
+    const e=new DataView(idx.buffer, i*16, 16);
+    const part=e.getUint8(8), role=e.getUint8(9), len=e.getUint16(10,true), off=e.getUint32(12,true);
+    const r=await fetch(`${chain.data}data/part-${String(part).padStart(4,"0")}.bin`,{headers:{Range:`bytes=${off}-${off+len-1}`}});
+    if(r.status!==206) throw new Error(`range read ${r.status}`);
+    const rec=new Uint8Array(await r.arrayBuffer());
+    if(rec.length!==len) throw new Error("short range read");
+    const nf=rec[0], nb=rec[1], nv=rec[2]|(rec[3]<<8);
+    const sigs=[]; for(let k=0;k<nf+nb+nv;k++) sigs.push(b58encode(rec.subarray(4+64*k,4+64*(k+1))));
+    const g={f:sigs.slice(0,nf), b:sigs.slice(nf,nf+nb), V:sigs.slice(nf+nb)};
+    if([g.f,g.b,g.V][role].includes(sig)) hits.push({role,...g});
+  }
+  return hits;
+}
+
+function renderSol(hits, q){
+  const victim=hits.some(h=>h.role===2);
+  const roleName=["front leg","back leg","victim"];
+  const row=(role,h)=>`<div class="seq-row"><span class="role">${role}</span><span class="mono">${txl(h)}${h===q?' <span class="you">← you</span>':""}</span></div>`;
+  const blocks=hits.map((h,i)=>{
+    const head=hits.length>1?`<p class="label">Sandwich ${i+1} of ${hits.length}</p>`:"";
+    return `${head}${h.f.map(x=>row("Front",x)).join("")}${h.V.map(x=>row("Victim",x)).join("")}${h.b.map(x=>row("Back",x)).join("")}`;
+  }).join("");
+  const meta=victim
+    ? `${hits.length===1?"one sandwich":`${hits.length} sandwiches`}; open a transaction on Solscan for amounts, tokens and the bot`
+    : `${roleName[hits[0].role]} of ${hits.length===1?"a sandwich":`${hits.length} sandwiches`}, against ${hits[0].V.length} victim${hits[0].V.length===1?"":"s"}`;
+  out.innerHTML=`<p class="verdict${victim?" hit":""}">${victim?"Sandwiched":"Attacker leg"}</p><p class="meta">${meta}</p>${blocks}`;
+}
+
+async function lookupSol(raw){
+  const m=String(raw).match(SOL_SIG);
+  if(!m){ out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a Solana transaction signature. Paste it directly, or a Solscan link.</p>`; return; }
+  const q=m[0]; $("q").value=q;
+  if(location.hash!=="#"+q) history.replaceState(null,"","#"+q);
+  out.innerHTML=`<p class="muted small">searching ${short(q)}…</p>`;
+  try{
+    const hits=await solSearch(q);
+    if(hits===null){ out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a valid Solana transaction signature.</p>`; return; }
+    if(!hits.length){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} Solana private-flow sandwiches in this dataset. A missing signature does not mean your protection worked — it may be outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
+    renderSol(hits,q);
+  }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
+}
+
+function setChain(key){ chain=CHAINS[key]; $("chain-sel").value=key; updateScope(); }
+
 async function lookup(raw){
+  if(!chain.solana&&!/[0-9a-fA-F]{64}/.test(String(raw))&&SOL_SIG.test(String(raw))) setChain("solana");
+  if(chain.solana) return lookupSol(raw);
   const q=parseHash(raw, chain);
   if(!q){
-    if(/^\s*[1-9A-HJ-NP-Za-km-z]{86,88}\s*$/.test(String(raw))){ out.innerHTML=`<p class="verdict">Unsupported</p><p>That looks like a Solana signature. This tool covers Ethereum, Base and Tron.</p>`; return; }
     out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a ${chain.label} transaction hash. Paste it directly, or an explorer link.</p>`; return;
   }
   $("q").value=q;
@@ -239,13 +326,15 @@ async function lookup(raw){
     render(rec,q,viaReorg);
   }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
-$("chain-sel").addEventListener("change",e=>{ chain=CHAINS[e.target.value]; updateScope(); });
+$("chain-sel").addEventListener("change",e=>setChain(e.target.value));
 $("f").addEventListener("submit",e=>{e.preventDefault(); lookup($("q").value)});
-$("q").addEventListener("paste",e=>{const t=(e.clipboardData||window.clipboardData)?.getData("text"); if(t&&/(0x)?[0-9a-fA-F]{64}/.test(t)){e.preventDefault(); lookup(t)}});
+$("q").addEventListener("paste",e=>{const t=(e.clipboardData||window.clipboardData)?.getData("text"); if(t&&(/(0x)?[0-9a-fA-F]{64}/.test(t)||SOL_SIG.test(t))){e.preventDefault(); lookup(t)}});
 window.addEventListener("hashchange",()=>{const h=location.hash.slice(1); if(h) lookup(h)});
 updateScope();
 const h0=location.hash.slice(1);
-if(/^0x[0-9a-fA-F]{64}$/.test(h0)) lookup(h0); else lookup("0x05162b2f10dcb08a44d02f2479845315c32b635b2e1d0a2ebb8f45820a28d95a");
+if(/^0x[0-9a-fA-F]{64}$/.test(h0)) lookup(h0);
+else if(/^[1-9A-HJ-NP-Za-km-z]{86,88}$/.test(h0)){ setChain("solana"); lookup(h0); }
+else lookup("0x05162b2f10dcb08a44d02f2479845315c32b635b2e1d0a2ebb8f45820a28d95a");
 })();
 </script>
 
