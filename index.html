@@ -147,13 +147,13 @@ footer a{white-space:nowrap}
    library), so addrUrl is left unset and they render as plain text. */
 const CHAINS={
   ethereum:{
-    label:"Ethereum", protection:"Protection: private submission (private RPCs, order-flow auctions) that skips the public mempool. Only transactions that never reached the public mempool are covered, so a public transaction won\u2019t show here even if it was sandwiched.", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607, bots:7,
+    label:"Ethereum", example:"0x05162b2f10dcb08a44d02f2479845315c32b635b2e1d0a2ebb8f45820a28d95a", protection:"Protection: private submission (private RPCs, order-flow auctions) that skips the public mempool. Only transactions that never reached the public mempool are covered, so a public transaction won\u2019t show here even if it was sandwiched.", idx:"ethereum/idx", s:"ethereum/s", ns:64, count:30607, bots:7,
     fallback:{idx:"eth_reorg/idx", s:"eth_reorg/s", ns:64},
     txUrl:h=>`https://etherscan.io/tx/${h}`,
     addrUrl:h=>`https://etherscan.io/address/${h}`,
   },
   base:{
-    label:"Base", protection:"Protection: a private mempool, where pending transactions are visible only to the sequencer until they are included.", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
+    label:"Base", example:"0xeaec7b56577e074cb2893c0e57fce3d8117648ba3074b337960b1897a49de7bb", protection:"Protection: a private mempool, where pending transactions are visible only to the sequencer until they are included.", idx:"base/idx", s:"base/s", ns:64, count:1889, bots:4,
     /* Per-bot exposure, as attributed in the paper (Base section). */
     causes:{
       "0x000000224f8364bb91259b24435881efc3752b3e":"transaction-pool leak: this bot was active during the August 2023 Base incident that exposed pending transactions",
@@ -165,7 +165,7 @@ const CHAINS={
     addrUrl:h=>`https://basescan.org/address/${h}`,
   },
   tron:{
-    label:"Tron", protection:"Protection: first-come-first-served ordering. The public mempool is ordered by arrival time, so fees can\u2019t buy an earlier position.", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
+    label:"Tron", example:"0xf177a23562708b6304e9350287933300fe58a214c104aa772dfde5d3b4f7ec70", protection:"Protection: first-come-first-served ordering. The public mempool is ordered by arrival time, so fees can\u2019t buy an earlier position.", idx:"tron/idx", s:"tron/s", ns:64, count:38567, bots:12, bareHex:true,
     cause:"probably a latency race",
     txUrl:h=>`https://tronscan.org/#/transaction/${h.slice(2)}`,
   },
@@ -181,7 +181,7 @@ const CHAINS={
      back in/out, profit; token units), then the 64-byte signatures (front legs,
      back legs, victims). Written by export_solana_site_v2.py. */
   solana:{
-    label:"Solana", protection:"Protection: no public mempool. Transactions are forwarded only to the upcoming leaders.", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
+    label:"Solana", example:"2xFueAvCKDsruGy1RHVUCfyaw5c12ME4sYRUmjhfDMCqowkQx6N2it2tD6SosU3GXXhCaFEZZBRuPg96T8NF6gTc", protection:"Protection: no public mempool. Transactions are forwarded only to the upcoming leaders.", count:28042725, bots:8631, solana:true, rec:"data_v2", idx:"index_v2",
     data:"https://huggingface.co/datasets/Lioba/solana_sandwich_attack_dataset/resolve/main/",
     txUrl:h=>`https://solscan.io/tx/${h}`,
   },
@@ -422,25 +422,29 @@ function renderSol(hits, q){
 }
 
 async function lookupSol(raw){
+  const my=++seq, o={set innerHTML(h){ if(my===seq) out.innerHTML=h; }};
   const m=String(raw).match(SOL_SIG);
-  if(!m){ out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a Solana transaction signature. Paste it directly, or a Solscan link.</p>`; return; }
+  if(!m){ o.innerHTML=`<p class="verdict">Invalid</p><p>That is not a Solana transaction signature. Paste it directly, or a Solscan link.</p>`; return; }
   const q=m[0]; $("q").value=q;
   if(location.hash!=="#"+q) history.replaceState(null,"","#"+q);
-  out.innerHTML=`<p class="muted small">searching ${short(q)}…</p>`;
+  o.innerHTML=`<p class="muted small">searching ${short(q)}…</p>`;
   try{
     const hits=await solSearch(q);
-    if(hits===null){ out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a valid Solana transaction signature.</p>`; return; }
-    if(!hits.length){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} Solana protected order flow sandwiches in this dataset. A missing signature does not mean your protection worked — it may be outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
-    renderSol(hits,q);
-  }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
+    if(hits===null){ o.innerHTML=`<p class="verdict">Invalid</p><p>That is not a valid Solana transaction signature.</p>`; return; }
+    if(!hits.length){ o.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} Solana protected order flow sandwiches in this dataset. A missing signature does not mean your protection worked — it may be outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
+    if(my===seq) renderSol(hits,q);
+  }catch(e){ o.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
 
+/* Lookups are async; only the most recent one may write to #out. */
+let seq=0;
 function setChain(key){ chain=CHAINS[key]; $("chain-sel").value=key; updateScope(); }
 
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 /* A random victim on the selected chain, looked up like a pasted hash. */
 async function example(){
-  out.innerHTML=`<p class="muted small">picking an example…</p>`;
+  const my=++seq, o={set innerHTML(h){ if(my===seq) out.innerHTML=h; }};
+  o.innerHTML=`<p class="muted small">picking an example…</p>`;
   try{
     let h;
     if(chain.solana){
@@ -453,19 +457,20 @@ async function example(){
       h=pick(pick(sh).V).h;
     }
     $("q").value=h; lookup(h);
-  }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
+  }catch(e){ o.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
 
 async function lookup(raw){
+  const my=++seq, o={set innerHTML(h){ if(my===seq) out.innerHTML=h; }};
   if(!chain.solana&&!/[0-9a-fA-F]{64}/.test(String(raw))&&SOL_SIG.test(String(raw))) setChain("solana");
   if(chain.solana) return lookupSol(raw);
   const q=parseHash(raw, chain);
   if(!q){
-    out.innerHTML=`<p class="verdict">Invalid</p><p>That is not a ${chain.label} transaction hash. Paste it directly, or an explorer link.</p>`; return;
+    o.innerHTML=`<p class="verdict">Invalid</p><p>That is not a ${chain.label} transaction hash. Paste it directly, or an explorer link.</p>`; return;
   }
   $("q").value=q;
   if(location.hash!=="#"+q) history.replaceState(null,"","#"+q);
-  out.innerHTML=`<p class="muted small">searching ${short(q)}…</p>`;
+  o.innerHTML=`<p class="muted small">searching ${short(q)}…</p>`;
   try{
     let rec=await searchSet(chain.idx, chain.s, chain.ns, q);
     let viaReorg=false;
@@ -473,11 +478,12 @@ async function lookup(raw){
       rec=await searchSet(chain.fallback.idx, chain.fallback.s, chain.fallback.ns, q);
       viaReorg=!!rec;
     }
-    if(!rec){ out.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} ${chain.label} ${chain===CHAINS.ethereum?"private-flow":"protected order flow"} sandwiches in this dataset. A missing hash does not mean your protection worked — it may ${chain===CHAINS.ethereum?"have been public, be ":"be "}outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
-    render(rec,q,viaReorg);
-  }catch(e){ out.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
+    if(!rec){ o.innerHTML=`<p class="verdict clear">No match</p><p class="mono small">${txl(q,true)}</p><p class="muted small">Not among the ${n0(chain.count)} ${chain.label} ${chain===CHAINS.ethereum?"private-flow":"protected order flow"} sandwiches in this dataset. A missing hash does not mean your protection worked — it may ${chain===CHAINS.ethereum?"have been public, be ":"be "}outside the paper's window, on a different DEX, or hit by a smaller bot.</p>`; return; }
+    if(my===seq) render(rec,q,viaReorg);
+  }catch(e){ o.innerHTML=`<p class="verdict">Error</p><p class="muted small">Could not load data (${esc(e.message)}). Try again.</p>`; }
 }
-$("chain-sel").addEventListener("change",e=>setChain(e.target.value));
+/* Switching chains shows that chain's example sandwich. */
+$("chain-sel").addEventListener("change",e=>{ setChain(e.target.value); $("q").value=chain.example; lookup(chain.example); });
 $("f").addEventListener("submit",e=>{e.preventDefault(); lookup($("q").value)});
 $("ex").addEventListener("click",example);
 $("q").addEventListener("paste",e=>{const t=(e.clipboardData||window.clipboardData)?.getData("text"); if(t&&(/(0x)?[0-9a-fA-F]{64}/.test(t)||SOL_SIG.test(t))){e.preventDefault(); lookup(t)}});
@@ -486,7 +492,7 @@ updateScope();
 const h0=location.hash.slice(1);
 if(/^0x[0-9a-fA-F]{64}$/.test(h0)) lookup(h0);
 else if(/^[1-9A-HJ-NP-Za-km-z]{86,88}$/.test(h0)){ setChain("solana"); lookup(h0); }
-else lookup("0x05162b2f10dcb08a44d02f2479845315c32b635b2e1d0a2ebb8f45820a28d95a");
+else lookup(CHAINS.ethereum.example);
 })();
 </script>
 
